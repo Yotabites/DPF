@@ -6,5 +6,5 @@ import org.apache.spark.sql.{DataFrame, SparkSession}
 
 trait HiveMngTransform {
   def transform(spark: SparkSession, input: DPFConfig): DataFrame
-  def save(df: DataFrame, spark: SparkSession, config: Config): Boolean
+  def save(df: DataFrame, spark: SparkSession, config: Config): (Long, String)
 }

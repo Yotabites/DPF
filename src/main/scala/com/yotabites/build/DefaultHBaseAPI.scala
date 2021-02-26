@@ -37,7 +37,7 @@ class DefaultHBaseAPI extends HBaseTransform {
     spark.createDataFrame(rowRdd, schema)
   }
 
-  override def save(df: DataFrame, spark: SparkSession, hbaseCtx: HBaseContext, config: Config): Boolean = {
+  override def save(df: DataFrame, spark: SparkSession, hbaseCtx: HBaseContext, config: Config): (Long, String) = {
     val cols = df.columns
     val cf = config.getString("target.options.cf")
     val tbl = config.getString("target.options.tablename")
@@ -70,7 +70,7 @@ class DefaultHBaseAPI extends HBaseTransform {
       hbaseCtx.bulkPut[Put](putRdd, TableName.valueOf(tbl), a => a)
     }
 
-    true
+    (-1L, "")
   }
 
   /**

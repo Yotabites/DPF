@@ -1,7 +1,12 @@
 package com.yotabites.utils
 
+import java.io.{PrintWriter, StringWriter}
+import java.text.SimpleDateFormat
+
+import com.typesafe.config.Config
 import com.typesafe.scalalogging.LazyLogging
 import com.yotabites.build.{DefaultHBaseAPI, DefaultHdfsAPI, DefaultHiveExtAPI, DefaultHiveMngAPI}
+import org.apache.spark.sql.{DataFrame, SparkSession}
 
 import scala.util.Try
 
@@ -16,7 +21,7 @@ object AppUtils extends LazyLogging {
       case "hbase" => (clazz, new DefaultHBaseAPI)
     }
 
-    val transformationModel = if (customClass.isEmpty) {
+    val transformationModel = if (null == customClass || customClass.isEmpty) {
       logger.info(s"`$which.transform` not specified. Using ${defaultObj.getClass.getSimpleName}...")
       defaultObj
     } else {
@@ -30,5 +35,22 @@ object AppUtils extends LazyLogging {
       })
     }
     transformationModel.asInstanceOf[T]
+  }
+
+  def writeTargetDataFrame(spark: SparkSession, df: DataFrame, config: Config,
+                           location: String = null, doNotCount: Boolean = false): Long = {
+    val path = if (null == location) config.getString("target.options.location") else location
+    df.write.format(config.getString("target.options.format"))
+      .option("compression", config.getString("target.options.compression"))
+      .mode(config.getString("target.options.mode"))
+      .save(path)
+
+    if(doNotCount) 0L else spark.read.format(config.getString("target.options.format")).load(path).count
+  }
+
+  def getStackTrace(throwable: Throwable): String = {
+    val sw = new StringWriter
+    throwable.printStackTrace(new PrintWriter(sw))
+    sw.toString
   }
 }

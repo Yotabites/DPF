@@ -3,18 +3,19 @@ package com.yotabites.utils
 import java.text.SimpleDateFormat
 
 import com.typesafe.config.Config
+import com.typesafe.scalalogging.LazyLogging
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.Path
-import org.apache.hadoop.hbase.client.Result
+import org.apache.hadoop.hbase.client.{Connection, ConnectionFactory, Result, Table}
 import org.apache.hadoop.hbase.io.compress.Compression
 import org.apache.hadoop.hbase.util.Bytes
-import org.apache.hadoop.hbase.{Cell, CellUtil, HBaseConfiguration}
+import org.apache.hadoop.hbase.{Cell, CellUtil, HBaseConfiguration, TableName}
 import org.apache.spark.sql.types.{StringType, StructField, StructType}
 
-import scala.util.Try
+import scala.util.{Failure, Success, Try}
 import scala.collection.JavaConverters._
 
-object HBaseUtils {
+object HBaseUtils extends LazyLogging {
 
   def getHBaseConf(config: Config): Configuration = {
     val conf = HBaseConfiguration.create
@@ -22,6 +23,25 @@ object HBaseUtils {
     conf.set("hbase.zookeeper.quorum", config.getString("hbase.zookeeper.quorum"))
     conf.set("hfile.compression", Compression.Algorithm.SNAPPY.getName)
     conf
+  }
+
+  def getHTable(config: Config): (Table, Connection) = {
+    logger.info("Creating HBase connection ")
+    val conf = getHBaseConf(config)
+    val connection = ConnectionFactory.createConnection(conf)
+    val con = Try {
+      connection.getTable(TableName.valueOf(config.getString("hbase.metastore.table")))
+    }
+    val hTable = con match {
+      case Success(s) => s
+      case Failure(f) =>
+        logger.error(f.getMessage)
+        logger.error(f.getStackTrace.toString)
+        logger.error("Can't connect to HBase")
+        null
+    }
+
+    (hTable, connection)
   }
 
   def getCellName(cell: Cell): String = Bytes.toString(CellUtil.cloneQualifier(cell))
@@ -36,7 +56,7 @@ object HBaseUtils {
 
   def getSchema(list: List[String]): StructType = StructType(list.map(x => StructField(x, StringType)))
 
-  def getTime: String = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(System.currentTimeMillis)
+  def getTime(pattern: String = "yyyy-MM-dd HH:mm:ss"): String = new SimpleDateFormat(pattern).format(System.currentTimeMillis)
 
   def diffTime(start: String, end: String): Long = {
     val a = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").parse(start).getTime
