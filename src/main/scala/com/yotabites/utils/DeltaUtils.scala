@@ -80,7 +80,6 @@ object DeltaUtils extends LazyLogging {
 
     val streamWriter = df.writeStream
       .format(format)
-      .outputMode(mode)
       .option ("checkpointLocation", checkpointLocation)
 
     mode match {
