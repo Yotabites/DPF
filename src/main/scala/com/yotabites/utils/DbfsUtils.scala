@@ -39,7 +39,7 @@ object DbfsUtils extends LazyLogging {
     }
 
     logger.info("Available mount points: " + dbutils.fs.ls("/mnt").map(info => info.name).mkString(", "))
-    mountPoint
+    s3MountPrefix + location
   }
 
   private def getBucketName(location: String, s3CredentialAttributes: Config, custom: JSONObject): String = {

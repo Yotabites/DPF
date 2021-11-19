@@ -33,22 +33,8 @@ object ProcessBuilder extends LazyLogging {
      * ****************************************************** */
     val config = ConfigFactory.parseFile(new File(configFile))
     val project = config.getString("source.project.name")
-    val deltaFlag = Try { config.getBoolean("source.incremental.flag") }.getOrElse(false)
+    val incrementalFlag = Try { config.getBoolean("source.incremental.flag") }.getOrElse(false)
     val (dpfConfigs, where, addCols) = ConfigParser.parseConfig(config)
-
-    /** ******************************************************
-     * Find Time Ranges for HBase Scan
-     * ****************************************************** */
-    val metastoreType = config.getString("metastore.type")
-    var scan: Scan =
-      if (metastoreType == "hbase") {
-        scan = new Scan
-        val hbase_end = System.currentTimeMillis()
-        val hbase_start = if (deltaFlag) MetastoreManager.getLatestCheckpoint(null, config, project) else 0L
-        if (hbase_start == 0) logger.warn("Seems this is an initial run for this process. Setting hbase_start as `0L`")
-        scan.setTimeRange(hbase_start, hbase_end)
-        scan
-      } else null
 
     /** ******************************************************
      * Build Spark Context and HBase Context
@@ -59,9 +45,20 @@ object ProcessBuilder extends LazyLogging {
     sparkConf.getAll.toList.foreach(x => println(x._1 + "---" + x._2))
     val spark = SparkSession.builder.config(sparkConf).getOrCreate
 
+    /** ******************************************************
+     * Find Time Ranges
+     * ****************************************************** */
+    val metastoreType = config.getString("metastore.type")
     val metastore_end = System.currentTimeMillis()
-    val metastore_start = if (deltaFlag) MetastoreManager.getLatestCheckpoint(spark, config, project) else 0L
+    val metastore_start = if (incrementalFlag) MetastoreManager.getLatestCheckpoint(spark, config, project) else 0L
     if (metastore_start == 0) logger.warn("Seems this is an initial run for this process. Setting metastore_start as `0L`")
+
+    var scan: Scan =
+      if (metastoreType == "hbase") {
+        val hbaseScan = new Scan
+        hbaseScan.setTimeRange(metastore_start, metastore_end)
+        hbaseScan
+      } else null
 
     var hbaseContext : HBaseContext = if (metastoreType == "hbase") {
       new HBaseContext(spark.sparkContext, getHBaseConf(config))

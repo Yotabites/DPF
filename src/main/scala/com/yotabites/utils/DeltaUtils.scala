@@ -6,7 +6,6 @@ import io.delta.tables.DeltaTable
 import com.typesafe.scalalogging.LazyLogging
 import com.yotabites.config.ConfigParser.DPFConfig
 import org.apache.spark.sql.{DataFrame, SparkSession}
-import org.apache.spark.sql.streaming.{StreamingQuery, Trigger}
 
 import scala.util.Try
 
@@ -41,7 +40,7 @@ object DeltaUtils extends LazyLogging {
           writeTargetDataFrame(spark, df, config, writeLocation, doNotCount)
         } else {
           // write to a stream
-          val streamingQuery = writeStream(df, path, config)
+          writeStream(df, path, config)
           logger.info(">>>>> successfully started streaming.")
           0L
         }
@@ -66,7 +65,7 @@ object DeltaUtils extends LazyLogging {
     }
   }
 
-  def writeStream(df: DataFrame, location: String, config: Config): StreamingQuery = {
+  def writeStream(df: DataFrame, location: String, config: Config): Unit = {
     val format = Try{config.getString("target.options.format")}.getOrElse("delta")
     val mode = Try{config.getString("target.options.mode")}.getOrElse("append")
     val path = if (null == location) config.getString("target.options.location") else location
@@ -77,11 +76,34 @@ object DeltaUtils extends LazyLogging {
     }
     logger.info(s">>>>> Stream checkpoint location- $checkpointLocation")
     logger.info(s">>>>> Stream output location- $path")
-    df.writeStream
+
+
+    val streamWriter = df.writeStream
       .format(format)
       .outputMode(mode)
-      .option("checkpointLocation", checkpointLocation)
-      .start(path)
+      .option ("checkpointLocation", checkpointLocation)
+
+    mode match {
+      case "append" | "overwrite" => streamWriter.outputMode(mode).start(path)
+      case "upsert" | "merge" | "logicalDelete" => {
+        streamWriter.outputMode("update").foreachBatch((batchDf: DataFrame, batchId: Long) =>  {
+          mode match {
+            case "upsert" =>
+              val joinCondition = config.getString ("target.options.delta.upsert.condition")
+              upsert (batchDf, path, joinCondition)
+            case "merge" =>
+              val joinCondition = config.getString ("target.options.delta.merge.condition")
+              val setStatement = config.getString ("target.options.delta.merge.set")
+              merge (batchDf, path, joinCondition, setStatement)
+            case "logicalDelete" =>
+              val joinCondition = config.getString ("target.options.delta.logicalDelete.condition")
+              val setStatement = config.getString ("target.options.delta.logicalDelete.set")
+              logicalDelete (batchDf, path, joinCondition, setStatement)
+          }
+        }).start()
+      }
+      case _ =>  logger.error(s"No a valid streaming mode ${mode}")
+    }
 
   }
 
@@ -110,6 +132,7 @@ object DeltaUtils extends LazyLogging {
     targetDeltaTable.as("target")
       .merge(sourceDf.as("source"),joinCondition)
       .whenMatched.updateExpr(updateMap)
+      .whenNotMatched.insertAll
       .execute
   }
 
@@ -139,5 +162,6 @@ object DeltaUtils extends LazyLogging {
     logger.info(s">>>>> $setStatement converted to: " + retVal.toString())
     retVal
   }
+
 
 }

@@ -37,7 +37,7 @@ class DeltaLakeMetastore extends Metastore with LazyLogging {
     val metricTable = config.getString("metastore.table")
 
     val customJson =  new JSONObject(Try {config.getString("metastore.custom")}.getOrElse("{}"))
-    setupMountPoint(metricTable, config.getConfig("s3"), customJson)
+    val metricTableWriteLocation = setupMountPoint(metricTable, config.getConfig("s3"), customJson)
 
     logger.info(s"Updating metrics in DeltaLake MetaStore $metricTable")
     val metricNames = metricObj.getClass.getDeclaredFields.map(x => x.getName).toList
@@ -51,7 +51,7 @@ class DeltaLakeMetastore extends Metastore with LazyLogging {
     matricdf.show(false)
 
     val status = Try {
-      matricdf.write.mode("append").format("delta").save(s3MountPrefix + metricTable)
+      matricdf.write.mode("append").format("delta").save(metricTableWriteLocation)
     }
 
     val result = status match {
@@ -70,9 +70,9 @@ class DeltaLakeMetastore extends Metastore with LazyLogging {
     val metricTable = config.getString("metastore.table")
 
     val customJson =  new JSONObject(Try {config.getString("metastore.custom")}.getOrElse("{}"))
-    setupMountPoint(metricTable, config.getConfig("s3"), customJson)
+    val metricTableReadLocation = setupMountPoint(metricTable, config.getConfig("s3"), customJson)
 
-    val metricDf = spark.read.format("delta").load(s3MountPrefix + metricTable)
+    val metricDf = spark.read.format("delta").load(metricTableReadLocation)
     metricDf.createOrReplaceTempView("_ms")
     val metricDfSorted = spark.sql(s"select * from _ms where project = '$project' order by start_tm desc")
     val checkPoint = Try {

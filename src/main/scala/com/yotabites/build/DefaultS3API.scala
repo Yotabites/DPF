@@ -17,8 +17,7 @@ import scala.util.Try
 class DefaultS3API extends S3Transform with LazyLogging {
   override def transform(spark: SparkSession, input: DPFConfig, s3CredentialAttributes: Config): DataFrame = {
     val requiredCols = input.columns
-    setupMountPoint(input.location, s3CredentialAttributes, input.custom)
-    val readLocation = s3MountPrefix + input.location
+    val readLocation = setupMountPoint(input.location, s3CredentialAttributes, input.custom)
     val df = if (input.format == "delta") {
       deltaRead(spark, input, readLocation)
     } else {
@@ -34,9 +33,7 @@ class DefaultS3API extends S3Transform with LazyLogging {
     val customJson = new JSONObject(Try {
       config.getString("custom")
     }.getOrElse("{}"))
-    val location = config.getString("target.options.location")
-    setupMountPoint(location, config.getConfig("s3"), customJson)
-    val writeLocation = s3MountPrefix + location
+    val writeLocation = setupMountPoint(config.getString("target.options.location"), config.getConfig("s3"), customJson)
     val format = config.getString("target.options.format")
     logger.info(s">>>>> target.options.format: $format")
     if (format == "delta") {
