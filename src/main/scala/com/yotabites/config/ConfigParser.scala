@@ -14,7 +14,7 @@ import scala.util.Try
 
 object ConfigParser extends LazyLogging {
 
-  case class DPFConfig(index: Int, id: String, source: String, location: String, join: String, format: String, 
+  case class DPFConfig(index: Int, id: String, source: String, stream: Boolean, location: String, join: String, format: String,
                        where: String, columnFamily: String, transform: String, columns: List[String], rename: Boolean,
                        unique: Boolean, options: Map[String, String], custom: JSONObject)
 
@@ -31,6 +31,7 @@ object ConfigParser extends LazyLogging {
         index = getVal[Int]("index", map),
         id = getVal[String]("id", map),
         source = getVal[String]("source", map),
+        stream = Try {getVal[Boolean]("stream", map)}.getOrElse(false),
         location = getVal[String]("location", map),
         format = getVal[String]("format", map),
         join = getVal[String]("join", map),

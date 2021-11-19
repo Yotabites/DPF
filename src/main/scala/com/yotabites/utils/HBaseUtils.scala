@@ -30,7 +30,7 @@ object HBaseUtils extends LazyLogging {
     val conf = getHBaseConf(config)
     val connection = ConnectionFactory.createConnection(conf)
     val con = Try {
-      connection.getTable(TableName.valueOf(config.getString("hbase.metastore.table")))
+      connection.getTable(TableName.valueOf(config.getString("metastore.table")))
     }
     val hTable = con match {
       case Success(s) => s
