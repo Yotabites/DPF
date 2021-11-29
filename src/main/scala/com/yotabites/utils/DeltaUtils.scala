@@ -27,37 +27,46 @@ object DeltaUtils extends LazyLogging {
   def deltaWrite(spark: SparkSession, df: DataFrame, config: Config,
                  writeLocation: String = null, doNotCount: Boolean = false): Long = {
     logger.info(">>>>> Inside deltaWrite.")
+    val stream = Try {config.getBoolean("target.options.stream")}.getOrElse(false)
+    logger.info(s">>>>> IS STREAMING: $stream")
+    if (stream) {
+      writeStream(df, writeLocation, config)
+      0L
+    } else {
+      writeTable(spark, df, config, writeLocation, doNotCount)
+    }
+  }
+
+  def writeTable(spark: SparkSession, df: DataFrame, config: Config,
+                 writeLocation: String = null, doNotCount: Boolean = false): Long = {
     val mode = config.getString("target.options.mode")
     val path = if (null == writeLocation) config.getString("target.options.location") else writeLocation
+    logger.info(s">>>>> deltaWrite table location: $path")
     logger.info(s">>>>> target.options.mode: $mode")
-    logger.info(s">>>>> deltaWrite location: $path")
     mode match {
       case "overwrite" | "append" =>
-        val stream = Try {config.getBoolean("target.options.stream")}.getOrElse(false)
-        logger.info(s">>>>> target.options.stream: $stream")
-        val count = if (!stream) {
-          // write to a file
-          writeTargetDataFrame(spark, df, config, writeLocation, doNotCount)
-        } else {
-          // write to a stream
-          writeStream(df, path, config)
-          logger.info(">>>>> successfully started streaming.")
-          0L
-        }
-        count
+        writeTargetDataFrame(spark, df, config, writeLocation, doNotCount)
       case "upsert" =>
         val joinCondition = config.getString("target.options.delta.upsert.condition")
-        upsert(df, path, joinCondition)
+        upsert(sourceDf = df,
+          targetLocation = path,
+          joinCondition = joinCondition)
         if(doNotCount) 0L else spark.read.format(config.getString("target.options.format")).load(path).count
       case "merge" =>
         val joinCondition = config.getString("target.options.delta.merge.condition")
         val setStatement = config.getString("target.options.delta.merge.set")
-        merge(df, path, joinCondition, setStatement)
+        merge(sourceDf = df,
+          targetLocation = path,
+          joinCondition = joinCondition,
+          setStatement = setStatement)
         if(doNotCount) 0L else spark.read.format(config.getString("target.options.format")).load(path).count
       case "logicalDelete" =>
         val joinCondition = config.getString("target.options.delta.logicalDelete.condition")
         val setStatement = config.getString("target.options.delta.logicalDelete.set")
-        logicalDelete(df, path, joinCondition, setStatement)
+        logicalDelete(sourceDf = df,
+          targetLocation = path,
+          joinCondition = joinCondition,
+          setStatement = setStatement)
         if(doNotCount) 0L else spark.read.format(config.getString("target.options.format")).load(path).count
       case _ =>
         logger.error(s"Not a valid Delta Lake write mode- $mode")
@@ -65,10 +74,12 @@ object DeltaUtils extends LazyLogging {
     }
   }
 
-  def writeStream(df: DataFrame, location: String, config: Config): Unit = {
+  def writeStream(df: DataFrame, writeLocation: String, config: Config): Unit = {
     val format = Try{config.getString("target.options.format")}.getOrElse("delta")
     val mode = Try{config.getString("target.options.mode")}.getOrElse("append")
-    val path = if (null == location) config.getString("target.options.location") else location
+    val path = if (null == writeLocation) config.getString("target.options.location") else writeLocation
+    logger.info(s">>>>> deltaWrite stream location: $path")
+    logger.info(s">>>>> target.options.mode: $mode")
     val checkpointLocation = {
       val cp = Try{config.getString("target.options.streamCheckpointLocation")}.getOrElse(path + "_checkpoint")
       if (cp.isEmpty) path + "_checkpoint"
@@ -85,19 +96,28 @@ object DeltaUtils extends LazyLogging {
     mode match {
       case "append" | "overwrite" => streamWriter.outputMode(mode).start(path)
       case "upsert" | "merge" | "logicalDelete" => {
+        val targetDeltaTable = DeltaTable.forPath(path)
         streamWriter.outputMode("update").foreachBatch((batchDf: DataFrame, batchId: Long) =>  {
           mode match {
             case "upsert" =>
               val joinCondition = config.getString ("target.options.delta.upsert.condition")
-              upsert (batchDf, path, joinCondition)
+              upsert (sourceDf = batchDf,
+                joinCondition = joinCondition,
+                targetDeltaTbl = targetDeltaTable)
             case "merge" =>
               val joinCondition = config.getString ("target.options.delta.merge.condition")
               val setStatement = config.getString ("target.options.delta.merge.set")
-              merge (batchDf, path, joinCondition, setStatement)
+              merge (sourceDf = batchDf,
+                joinCondition = joinCondition,
+                setStatement = setStatement,
+                targetDeltaTbl = targetDeltaTable)
             case "logicalDelete" =>
               val joinCondition = config.getString ("target.options.delta.logicalDelete.condition")
               val setStatement = config.getString ("target.options.delta.logicalDelete.set")
-              logicalDelete (batchDf, path, joinCondition, setStatement)
+              logicalDelete (sourceDf = batchDf,
+                joinCondition = joinCondition,
+                setStatement = setStatement,
+                targetDeltaTbl = targetDeltaTable)
           }
         }).start()
       }
@@ -111,8 +131,11 @@ object DeltaUtils extends LazyLogging {
    * when match found - update row, else when no match - insert row
    *
    */
-  def upsert(sourceDf: DataFrame, targetLocation: String, joinCondition: String): Unit = {
-    val targetDeltaTable = DeltaTable.forPath(targetLocation)
+  def upsert(sourceDf: DataFrame,
+             targetLocation: String = null,
+             joinCondition: String,
+             targetDeltaTbl:DeltaTable = null): Unit = {
+    val targetDeltaTable = if (targetDeltaTbl != null) targetDeltaTbl else DeltaTable.forPath(targetLocation)
     targetDeltaTable.as("target")
       .merge(sourceDf.as("source"),joinCondition)
       .whenMatched.updateAll
@@ -122,11 +145,16 @@ object DeltaUtils extends LazyLogging {
 
   /**
    *
-   * when match found - do update using target.options.delta.merge.set
+   * when match found - do update specific columns using target.options.delta.merge.set
+   * when no match - insert row
    *
    */
-  def merge(sourceDf: DataFrame, targetLocation: String, joinCondition: String, setStatement: String): Unit = {
-    val targetDeltaTable = DeltaTable.forPath(targetLocation)
+  def merge(sourceDf: DataFrame,
+            targetLocation: String = null,
+            joinCondition: String,
+            setStatement: String,
+            targetDeltaTbl:DeltaTable = null): Unit = {
+    val targetDeltaTable = if (targetDeltaTbl != null) targetDeltaTbl else DeltaTable.forPath(targetLocation)
     val updateMap = getMap(setStatement)
     targetDeltaTable.as("target")
       .merge(sourceDf.as("source"),joinCondition)
@@ -140,8 +168,12 @@ object DeltaUtils extends LazyLogging {
    * when match found - do update using target.options.delta.logicalDelete.set
    *
    */
-  def logicalDelete(sourceDf: DataFrame, targetLocation: String, joinCondition: String, setStatement: String): Unit = {
-    val targetDeltaTable = DeltaTable.forPath(targetLocation)
+  def logicalDelete(sourceDf: DataFrame,
+                    targetLocation: String = null,
+                    joinCondition: String,
+                    setStatement: String,
+                    targetDeltaTbl:DeltaTable = null): Unit = {
+    val targetDeltaTable = if (targetDeltaTbl != null) targetDeltaTbl else DeltaTable.forPath(targetLocation)
     val updateMap = getMap(setStatement)
     targetDeltaTable.as("target")
       .merge(sourceDf.as("source"),joinCondition)

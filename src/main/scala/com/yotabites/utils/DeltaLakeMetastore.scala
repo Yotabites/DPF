@@ -39,11 +39,11 @@ class DeltaLakeMetastore extends Metastore with LazyLogging {
     val customJson =  new JSONObject(Try {config.getString("metastore.custom")}.getOrElse("{}"))
     val metricTableWriteLocation = setupMountPoint(metricTable, config.getConfig("s3"), customJson)
 
-    logger.info(s"Updating metrics in DeltaLake MetaStore $metricTable")
+    logger.info(s">>>>> Updating metrics in DeltaLake MetaStore $metricTableWriteLocation")
     val metricNames = metricObj.getClass.getDeclaredFields.map(x => x.getName).toList
     val metricValues = metricObj.productIterator.toList.map(_.toString)
     val metricMap = metricNames.zip(metricValues).toMap
-    logger.info(s"Metrics : ${metricMap.toString}")
+    logger.info(s">>>>> Metrics : ${metricMap.toString}")
 
     import spark.implicits._
     val matricdf = metricMap.tail
