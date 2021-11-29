@@ -13,7 +13,7 @@ object DbfsUtils extends LazyLogging {
   final val ACCESS_KEY_TOKEN = "access.key.token"
   final val SECRET_ACCESS_KEY_SCOPE = "secret.access.key.scope"
   final val SECRET_ACCESS_KEY_TOKEN = "secret.access.key.token"
-  final val s3MountPrefix = "/mnt"
+  final val mountPrefix = "/mnt"
 
   def setupMountPoint(location: String, s3CredentialAttributes: Config, custom: JSONObject): String = {
     val bucketName = getBucketName(location, s3CredentialAttributes, custom)
@@ -25,21 +25,20 @@ object DbfsUtils extends LazyLogging {
 
     val status = Try {
       if (!isMountPointAvailable(mountPoint))
-        dbutils.fs.mount(s"s3a://$bucketName", s"$s3MountPrefix/$mountPoint")
+        dbutils.fs.mount(s"s3a://$bucketName", s"$mountPrefix/$mountPoint")
       else true
     }
 
     status match {
-      case Success(b) => {
+      case Success(b) =>
         if (b.asInstanceOf[Boolean]) logger.info(s"Mount Point $mountPoint successfully created.")
         else logger.error(s"Mount Point creation failed $mountPoint")
-      }
       case Failure(f) => logger.error(AppUtils.getStackTrace(f))
         logger.error("Update to DeltaLake metastore failed...")
     }
 
     logger.info("Available mount points: " + dbutils.fs.ls("/mnt").map(info => info.name).mkString(", "))
-    s3MountPrefix + location
+    mountPrefix + location
   }
 
   private def getBucketName(location: String, s3CredentialAttributes: Config, custom: JSONObject): String = {
@@ -84,13 +83,13 @@ object DbfsUtils extends LazyLogging {
       if (accessKey.isEmpty) accessKey = akKey
       var secretAccessKey = getSecret(skScope, skKey)
       if (secretAccessKey.isEmpty) secretAccessKey = skKey
-      secretAccessKey = secretAccessKey.asInstanceOf[String].replaceAll("/", "%2F")
+      secretAccessKey = secretAccessKey.replaceAll("/", "%2F")
       accessKey + ":" + secretAccessKey
     }
   }
 
   def isMountPointAvailable(mountPoint: String) : Boolean = {
-    val mountList = dbutils.fs.ls(s3MountPrefix)
+    val mountList = dbutils.fs.ls(mountPrefix)
     val mount = mountList.find(info => info.name.equals(mountPoint + "/"))
     mount match {
       case Some(m) => logger.info(m.name + " is already mounted.")
