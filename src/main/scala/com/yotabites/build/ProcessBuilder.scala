@@ -5,7 +5,7 @@ import java.io.File
 import com.typesafe.config.ConfigFactory
 import com.typesafe.scalalogging.LazyLogging
 import com.yotabites.config.ConfigParser
-import com.yotabites.custom.{DbfsTransform, HBaseTransform, HDFSTransform, HiveExtTransform, HiveMngTransform, S3Transform}
+import com.yotabites.custom.{HBaseTransform, HDFSTransform, HiveExtTransform, HiveMngTransform, S3Transform}
 import com.yotabites.utils.HBaseUtils._
 import com.yotabites.utils.AppUtils._
 import com.yotabites.utils.{MetastoreManager, Metric}
@@ -91,7 +91,6 @@ object ProcessBuilder extends LazyLogging {
           getCustomClass[HBaseTransform](input.transform, x).transform(input, spark, hbaseContext, scan)
         }
         case x if x == "s3" => getCustomClass[S3Transform](input.transform, x).transform(spark, input, s3CredentialAttributes)
-        case x if x == "dbfs" => getCustomClass[DbfsTransform](input.transform, x).transform(spark, input)
         case _ => logger.error("Gotta upgrade to premium for " + input.source + " input"); sys.exit(99); null
       }
       val df = if (input.rename) inputDf.toDF(inputDf.columns.map(x => input.id + "_" + x): _*) else inputDf
@@ -117,7 +116,6 @@ object ProcessBuilder extends LazyLogging {
       case "hdfs" => getCustomClass[HDFSTransform](customClass, "hdfs").save(outDf, spark, config)
       case "hive" => getCustomClass[HiveMngTransform](customClass, "hive").save(outDf, spark, config)
       case "s3" => getCustomClass[S3Transform](customClass, "s3").save(outDf, spark, config)
-      case "dbfs" => getCustomClass[DbfsTransform](customClass, "dbfs").save(outDf, spark, config)
       case x => logger.error("Gotta upgrade to premium for " + x + " target"); sys.exit(99); (-1L, "")
     }
 

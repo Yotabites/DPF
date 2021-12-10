@@ -12,7 +12,9 @@ import scala.util.Try
 object DeltaUtils extends LazyLogging {
 
   def deltaRead(spark: SparkSession, input: DPFConfig, readLocation: String = null): DataFrame = {
+    logger.info(">>>>> Inside deltaRead.")
     val stream = input.stream
+    logger.info(s">>>>> IS STREAMING READ: $stream")
     val opts: Map[String, String] = if(input.options == null) Map() else input.options
     val path = if (null == readLocation)  input.location else readLocation
     logger.info(s">>>>> deltaRead location: $path")
@@ -28,7 +30,7 @@ object DeltaUtils extends LazyLogging {
                  writeLocation: String = null, doNotCount: Boolean = false): Long = {
     logger.info(">>>>> Inside deltaWrite.")
     val stream = Try {config.getBoolean("target.options.stream")}.getOrElse(false)
-    logger.info(s">>>>> IS STREAMING: $stream")
+    logger.info(s">>>>> IS STREAMING WRITE: $stream")
     if (stream) {
       writeStream(df, writeLocation, config)
       0L
@@ -135,6 +137,7 @@ object DeltaUtils extends LazyLogging {
              targetLocation: String = null,
              joinCondition: String,
              targetDeltaTbl:DeltaTable = null): Unit = {
+    logger.info(":: UPSERT :: ")
     val targetDeltaTable = if (targetDeltaTbl != null) targetDeltaTbl else DeltaTable.forPath(targetLocation)
     targetDeltaTable.as("target")
       .merge(sourceDf.as("source"),joinCondition)
@@ -145,7 +148,7 @@ object DeltaUtils extends LazyLogging {
 
   /**
    *
-   * when match found - do update specific columns using target.options.delta.merge.set
+   * when match found - update specific columns using target.options.delta.merge.set
    * when no match - insert row
    *
    */
@@ -154,6 +157,7 @@ object DeltaUtils extends LazyLogging {
             joinCondition: String,
             setStatement: String,
             targetDeltaTbl:DeltaTable = null): Unit = {
+    logger.info(":: UPDATE :: ")
     val targetDeltaTable = if (targetDeltaTbl != null) targetDeltaTbl else DeltaTable.forPath(targetLocation)
     val updateMap = getMap(setStatement)
     targetDeltaTable.as("target")
@@ -173,6 +177,7 @@ object DeltaUtils extends LazyLogging {
                     joinCondition: String,
                     setStatement: String,
                     targetDeltaTbl:DeltaTable = null): Unit = {
+    logger.info(":: LOGICAL DELETE :: ")
     val targetDeltaTable = if (targetDeltaTbl != null) targetDeltaTbl else DeltaTable.forPath(targetLocation)
     val updateMap = getMap(setStatement)
     targetDeltaTable.as("target")

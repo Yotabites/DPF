@@ -5,7 +5,7 @@ import java.text.SimpleDateFormat
 
 import com.typesafe.config.Config
 import com.typesafe.scalalogging.LazyLogging
-import com.yotabites.build.{DefaultHBaseAPI, DefaultHdfsAPI, DefaultHiveExtAPI, DefaultHiveMngAPI, DefaultS3API, DefaultDbfsAPI}
+import com.yotabites.build.{DefaultHBaseAPI, DefaultHdfsAPI, DefaultHiveExtAPI, DefaultHiveMngAPI, DefaultS3API}
 import org.apache.spark.sql.{DataFrame, SparkSession}
 
 import scala.util.Try
@@ -20,7 +20,6 @@ object AppUtils extends LazyLogging {
       case "hive" => (clazz, new DefaultHiveMngAPI)
       case "hbase" => (clazz, new DefaultHBaseAPI)
       case "s3" =>   (clazz, new DefaultS3API)
-      case "dbfs" =>   (clazz, new DefaultDbfsAPI)
     }
 
     val transformationModel = if (null == customClass || customClass.isEmpty) {

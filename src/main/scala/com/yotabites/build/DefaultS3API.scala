@@ -11,13 +11,21 @@ import com.typesafe.scalalogging.LazyLogging
 import org.json.JSONObject
 import com.yotabites.utils.DeltaUtils.deltaRead
 
-import scala.collection.mutable
+import scala.util.matching.Regex
+
+//import scala.collection.mutable
 import scala.util.Try
 
 class DefaultS3API extends S3Transform with LazyLogging {
+  final val s3UrlPattern : Regex = "^[sS]3.?://.*$".r
+  final val dbfsUrlPattern: Regex = "^/FileStore/.*$".r
+
   override def transform(spark: SparkSession, input: DPFConfig, s3CredentialAttributes: Config): DataFrame = {
     val requiredCols = input.columns
-    val readLocation = setupMountPoint(input.location, s3CredentialAttributes, input.custom)
+    val readLocation = input.location match  {
+      case s3UrlPattern() | dbfsUrlPattern() => input.location
+      case _ =>  setupMountPoint(input.location, s3CredentialAttributes, input.custom)
+    }
     val df = if (input.format == "delta") {
       deltaRead(spark, input, readLocation)
     } else {
@@ -30,12 +38,13 @@ class DefaultS3API extends S3Transform with LazyLogging {
   }
 
   override def save(df: DataFrame, spark: SparkSession, config: Config): (Long, String) = {
-    val customJson = new JSONObject(Try {
-      config.getString("custom")
-    }.getOrElse("{}"))
-    val writeLocation = setupMountPoint(config.getString("target.options.location"), config.getConfig("s3"), customJson)
     val format = config.getString("target.options.format")
     logger.info(s">>>>> target.options.format: $format")
+    val writeLocation = config.getString("target.options.location") match  {
+      case s3UrlPattern() | dbfsUrlPattern() => config.getString("target.options.location")
+      case _ => val customJson = new JSONObject(Try {config.getString("custom")}.getOrElse("{}"))
+                setupMountPoint(config.getString("target.options.location"), config.getConfig("s3"), customJson)
+    }
     if (format == "delta") {
       (deltaWrite(spark, df, config, writeLocation), writeLocation)
     } else {
